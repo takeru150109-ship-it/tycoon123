@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>タイクーンゲーム</title>
+
+<!-- PWA -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="タイクーン">
+<meta name="theme-color" content="#12121a">
+<link rel="apple-touch-icon" href="icon.png">
+
+<style>
+body {
+  margin:0;
+  font-family:sans-serif;
+  background:#12121a;
+  color:white;
+  text-align:center;
+}
+
+/* タイトル */
+#titleScreen {
+  position:fixed;
+  width:100%;
+  height:100%;
+  background:linear-gradient(#1e1e2f,#12121a);
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+}
+
+#startBtn {
+  font-size:30px;
+  padding:15px 40px;
+  border:none;
+  border-radius:10px;
+  background:linear-gradient(#4facfe,#00f2fe);
+  color:white;
+}
+
+/* ゲーム */
+#gameScreen { display:none; }
+
+#topBar {
+  background:#2a2a40;
+  padding:10px;
+}
+
+#clickBtn {
+  width:150px;
+  height:150px;
+  border-radius:50%;
+  font-size:25px;
+  margin:20px;
+}
+
+/* カード */
+#cardContainer {
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:10px;
+  padding:10px;
+}
+
+.card {
+  background:#2a2a40;
+  border-radius:10px;
+  padding:10px;
+}
+
+.common { border:2px solid gray; }
+.rare { border:2px solid cyan; }
+.epic { border:2px solid violet; }
+.legend { border:2px solid gold; }
+
+/* ガチャ演出 */
+#gachaEffect {
+  position:fixed;
+  width:100%;
+  height:100%;
+  background:black;
+  display:none;
+  justify-content:center;
+  align-items:center;
+  font-size:40px;
+}
+
+/* メニュー */
+#menu {
+  position:fixed;
+  bottom:0;
+  width:100%;
+  display:flex;
+  background:#2a2a40;
+}
+#menu button {
+  flex:1;
+  padding:10px;
+}
+</style>
+</head>
+
+<body>
+
+<!-- タイトル -->
+<div id="titleScreen">
+  <h1>タイクーンゲーム</h1>
+  <button id="startBtn" onclick="startGame()">START</button>
+</div>
+
+<!-- ゲーム -->
+<div id="gameScreen">
+
+<div id="topBar">
+  コイン: <span id="coins">0</span> |
+  RP: <span id="rp">0</span>
+</div>
+
+<button id="clickBtn" onclick="clickCoin()">TAP</button>
+
+<div id="cardContainer"></div>
+
+<div id="menu">
+  <button onclick="gacha()">ガチャ</button>
+  <button onclick="gacha10()">10連</button>
+  <button onclick="rebirth()">リバース</button>
+  <button onclick="saveGame()">セーブ</button>
+  <button onclick="toggleSound()">音</button>
+</div>
+
+</div>
+
+<div id="gachaEffect"></div>
+
+<script>
+// -------- サウンド --------
+const sounds = {
+  click: new Audio("click.mp3"),
+  gacha: new Audio("gacha.mp3"),
+  rare: new Audio("rare.mp3"),
+  bgm: new Audio("bgm.mp3")
+};
+sounds.bgm.loop = true;
+sounds.bgm.volume = 0.3;
+
+let soundEnabled = false;
+
+function enableSound(){
+  if(!soundEnabled){
+    sounds.bgm.play();
+    soundEnabled = true;
+  }
+}
+
+function toggleSound(){
+  soundEnabled = !soundEnabled;
+  if(soundEnabled){
+    sounds.bgm.play();
+  }else{
+    sounds.bgm.pause();
+  }
+}
+
+// -------- データ --------
+let game = {
+  coins:0,
+  characters:{},
+  collection:{},
+  rebirthPoints:0,
+  lastTime:Date.now()
+};
+
+const charList = [
+ {name:"スライム",multi:1.1,rarity:"common"},
+ {name:"ゴブリン",multi:1.2,rarity:"common"},
+ {name:"ナイト",multi:2,rarity:"rare"},
+ {name:"ウィザード",multi:2.2,rarity:"rare"},
+ {name:"ダークナイト",multi:4,rarity:"epic"},
+ {name:"ドラゴンライダー",multi:5,rarity:"epic"},
+ {name:"神龍",multi:7,rarity:"legend"}
+];
+
+// -------- スタート --------
+function startGame(){
+  enableSound();
+  document.getElementById("titleScreen").style.display="none";
+  document.getElementById("gameScreen").style.display="block";
+  loadGame();
+}
+
+// -------- クリック --------
+function clickCoin(){
+  if(soundEnabled){
+    sounds.click.currentTime = 0;
+    sounds.click.play();
+  }
+
+  game.coins += getTotalMultiplier();
+  update();
+}
+
+// -------- 倍率 --------
+function getTotalMultiplier(){
+  let m=1;
+  for(let c in game.characters){
+    let data=charList.find(x=>x.name===c);
+    m+=data.multi*game.characters[c].count;
+  }
+  m*=1+game.rebirthPoints*0.5;
+  return m;
+}
+
+// -------- ガチャ --------
+function gacha(){
+  if(game.coins<100)return;
+  game.coins-=100;
+
+  if(soundEnabled) sounds.gacha.play();
+
+  let char=charList[Math.floor(Math.random()*charList.length)];
+  addChar(char.name);
+
+  if(char.rarity==="legend" && soundEnabled){
+    sounds.rare.play();
+  }
+
+  showEffect(char.name);
+}
+
+// -------- 10連 --------
+function gacha10(){
+  if(game.coins<1000)return;
+  game.coins-=1000;
+
+  for(let i=0;i<10;i++){
+    setTimeout(()=>{
+      let char=charList[Math.floor(Math.random()*charList.length)];
+
+      if(soundEnabled) sounds.gacha.play();
+      if(char.rarity==="legend" && soundEnabled){
+        sounds.rare.play();
+      }
+
+      addChar(char.name);
+      showEffect(char.name);
+
+    },i*300);
+  }
+}
+
+// -------- キャラ --------
+function addChar(name){
+  if(!game.characters[name]){
+    game.characters[name]={count:0,level:1};
+  }
+  let c=game.characters[name];
+  c.count++;
+
+  if(c.count%3===0){
+    c.level++;
+  }
+
+  game.collection[name]=true;
+  update();
+}
+
+// -------- リバース --------
+function rebirth(){
+  if(game.coins<10000)return;
+  let gain=Math.floor(game.coins/10000);
+  game.rebirthPoints+=gain;
+
+  game.coins=0;
+  game.characters={};
+
+  alert("リバース！RP+"+gain);
+  update();
+}
+
+// -------- UI --------
+function update(){
+  document.getElementById("coins").textContent=Math.floor(game.coins);
+  document.getElementById("rp").textContent=game.rebirthPoints;
+
+  let box=document.getElementById("cardContainer");
+  box.innerHTML="";
+
+  for(let name in game.characters){
+    let data=charList.find(x=>x.name===name);
+    let c=game.characters[name];
+
+    let div=document.createElement("div");
+    div.className="card "+data.rarity;
+
+    div.innerHTML=`
+      <h4>${name}</h4>
+      <p>Lv.${c.level}</p>
+      <p>x${c.count}</p>
+    `;
+
+    box.appendChild(div);
+  }
+}
+
+// -------- 演出 --------
+function showEffect(text){
+  let e=document.getElementById("gachaEffect");
+  e.style.display="flex";
+  e.textContent=text;
+
+  setTimeout(()=>{e.style.display="none";},800);
+}
+
+// -------- セーブ --------
+function saveGame(){
+  game.lastTime=Date.now();
+  localStorage.setItem("save",JSON.stringify(game));
+  alert("セーブ！");
+}
+
+// -------- ロード --------
+function loadGame(){
+  let data=localStorage.getItem("save");
+  if(data){
+    game=JSON.parse(data);
+
+    let now=Date.now();
+    let diff=(now-game.lastTime)/1000;
+
+    let gain=getTotalMultiplier()*Math.min(diff,3600);
+    game.coins+=gain;
+
+    alert("放置収入+"+Math.floor(gain));
+  }
+  update();
+}
+</script>
+
+</body>
+</html>
